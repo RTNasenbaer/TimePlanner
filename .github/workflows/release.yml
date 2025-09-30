@@ -154,6 +154,16 @@ jobs:
           name: TimePlanner-Windows-${{ needs.version.outputs.version }}
           path: ./artifacts
 
+      - name: Debug - List downloaded files
+        run: |
+          echo "Files in artifacts directory:"
+          find ./artifacts -type f -name "*" | head -20
+          ls -la ./artifacts/
+          echo "Looking for executable:"
+          find ./artifacts -name "*.exe" | head -5
+          echo "Looking for ZIP:"
+          find ./artifacts -name "*.zip" | head -5
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -189,25 +199,35 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Executable to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/TimePlanner-${{ needs.version.outputs.version }}.exe
-          asset_name: TimePlanner-${{ needs.version.outputs.version }}.exe
-          asset_content_type: application/octet-stream
+      - name: Find and upload executable
+        run: |
+          # Find the executable file
+          EXE_FILE=$(find ./artifacts -name "TimePlanner-${{ needs.version.outputs.version }}.exe" -type f | head -1)
+          echo "Found executable: $EXE_FILE"
+          
+          # Upload executable
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/octet-stream" \
+            "${{ steps.create_release.outputs.upload_url }}?name=TimePlanner-${{ needs.version.outputs.version }}.exe" \
+            --data-binary "@$EXE_FILE"
 
-      - name: Upload Portable ZIP to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/TimePlanner-Portable-${{ needs.version.outputs.version }}.zip
-          asset_name: TimePlanner-Portable-${{ needs.version.outputs.version }}.zip
-          asset_content_type: application/zip
+      - name: Find and upload portable ZIP
+        run: |
+          # Find the ZIP file
+          ZIP_FILE=$(find ./artifacts -name "TimePlanner-Portable-${{ needs.version.outputs.version }}.zip" -type f | head -1)
+          echo "Found ZIP: $ZIP_FILE"
+          
+          # Upload ZIP
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/zip" \
+            "${{ steps.create_release.outputs.upload_url }}?name=TimePlanner-Portable-${{ needs.version.outputs.version }}.zip" \
+            --data-binary "@$ZIP_FILE"
 
   # Optional: Build check for pull requests (doesn't create release)
   build-check:
