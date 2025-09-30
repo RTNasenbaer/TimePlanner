@@ -35,7 +35,7 @@ jobs:
             VERSION="${DATE}"
           fi
           
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           
           # Generate changelog from commit messages since last tag
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
@@ -47,9 +47,11 @@ jobs:
           
           # Create changelog
           CHANGELOG="## Changes in this release"$'\n\n'"$COMMITS"
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "changelog<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build-windows:
     needs: version
@@ -114,19 +116,30 @@ jobs:
 
       - name: Create portable distribution
         run: |
-          mkdir TimePlanner-Portable-${{ needs.version.outputs.version }}
-          copy "dist\TimePlanner-${{ needs.version.outputs.version }}.exe" "TimePlanner-Portable-${{ needs.version.outputs.version }}\TimePlanner.exe"
-          copy "README.md" "TimePlanner-Portable-${{ needs.version.outputs.version }}\README.md" 2>nul || echo "No README.md found"
-          copy "settings.json" "TimePlanner-Portable-${{ needs.version.outputs.version }}\settings.json" 2>nul || echo "No settings.json found"
-          xcopy "lang" "TimePlanner-Portable-${{ needs.version.outputs.version }}\lang\" /E /I 2>nul || echo "No lang folder found"
+          $VERSION = "${{ needs.version.outputs.version }}"
+          $PORTABLE_DIR = "TimePlanner-Portable-$VERSION"
           
-          echo "TimePlanner Portable v${{ needs.version.outputs.version }}" > "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-          echo "" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-          echo "This is a portable version of TimePlanner." >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-          echo "No installation required - just run TimePlanner.exe" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-          echo "" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-          echo "Built on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
-        shell: cmd
+          # Create directory
+          New-Item -ItemType Directory -Path $PORTABLE_DIR -Force
+          
+          # Copy executable
+          Copy-Item "dist\TimePlanner-$VERSION.exe" "$PORTABLE_DIR\TimePlanner.exe"
+          
+          # Copy optional files
+          if (Test-Path "README.md") { Copy-Item "README.md" $PORTABLE_DIR }
+          if (Test-Path "settings.json") { Copy-Item "settings.json" $PORTABLE_DIR }
+          if (Test-Path "lang") { Copy-Item -Recurse "lang" $PORTABLE_DIR }
+          
+          # Create version file
+          @"
+          TimePlanner Portable v$VERSION
+          
+          This is a portable version of TimePlanner.
+          No installation required - just run TimePlanner.exe
+          
+          Built on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+          "@ | Out-File -FilePath "$PORTABLE_DIR\VERSION.txt" -Encoding UTF8
+        shell: pwsh
 
       - name: Create ZIP archive
         run: |
@@ -164,16 +177,38 @@ jobs:
           echo "Looking for ZIP:"
           find ./artifacts -name "*.zip" | head -5
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Create Release with Files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ needs.version.outputs.version }}
-          release_name: TimePlanner v${{ needs.version.outputs.version }}
-          body: |
-            ${{ needs.version.outputs.changelog }}
+        run: |
+          # Find the files first
+          EXE_FILE=$(find ./artifacts -name "TimePlanner-${{ needs.version.outputs.version }}.exe" -type f | head -1)
+          ZIP_FILE=$(find ./artifacts -name "TimePlanner-Portable-${{ needs.version.outputs.version }}.zip" -type f | head -1)
+          
+          echo "Found executable: $EXE_FILE"
+          echo "Found ZIP: $ZIP_FILE"
+          
+          # Verify files exist
+          if [ ! -f "$EXE_FILE" ]; then
+            echo "ERROR: Executable file not found!"
+            ls -la ./artifacts/
+            find ./artifacts -name "*.exe"
+            exit 1
+          fi
+          
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found!"
+            ls -la ./artifacts/
+            find ./artifacts -name "*.zip"
+            exit 1
+          fi
+          
+          # Create release with GitHub CLI
+          gh release create "v${{ needs.version.outputs.version }}" \
+            "$EXE_FILE" \
+            "$ZIP_FILE" \
+            --title "TimePlanner v${{ needs.version.outputs.version }}" \
+            --notes '${{ needs.version.outputs.changelog }}
             
             ## Downloads
             
@@ -195,39 +230,7 @@ jobs:
             - Windows 10 or later
             - No additional software required
             
-            Built automatically from commit: ${{ github.sha }}
-          draft: false
-          prerelease: false
-
-      - name: Find and upload executable
-        run: |
-          # Find the executable file
-          EXE_FILE=$(find ./artifacts -name "TimePlanner-${{ needs.version.outputs.version }}.exe" -type f | head -1)
-          echo "Found executable: $EXE_FILE"
-          
-          # Upload executable
-          curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/octet-stream" \
-            "${{ steps.create_release.outputs.upload_url }}?name=TimePlanner-${{ needs.version.outputs.version }}.exe" \
-            --data-binary "@$EXE_FILE"
-
-      - name: Find and upload portable ZIP
-        run: |
-          # Find the ZIP file
-          ZIP_FILE=$(find ./artifacts -name "TimePlanner-Portable-${{ needs.version.outputs.version }}.zip" -type f | head -1)
-          echo "Found ZIP: $ZIP_FILE"
-          
-          # Upload ZIP
-          curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/zip" \
-            "${{ steps.create_release.outputs.upload_url }}?name=TimePlanner-Portable-${{ needs.version.outputs.version }}.zip" \
-            --data-binary "@$ZIP_FILE"
+            Built automatically from commit: ${{ github.sha }}'
 
   # Optional: Build check for pull requests (doesn't create release)
   build-check:
