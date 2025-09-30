@@ -138,7 +138,7 @@ jobs:
           powershell Compress-Archive -Path "TimePlanner-Portable-${{ needs.version.outputs.version }}\*" -DestinationPath "TimePlanner-Portable-${{ needs.version.outputs.version }}.zip"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TimePlanner-Windows-${{ needs.version.outputs.version }}
           path: |
@@ -154,7 +154,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: TimePlanner-Windows-${{ needs.version.outputs.version }}
           path: ./artifacts
@@ -239,7 +239,7 @@ jobs:
         shell: cmd
 
       - name: Upload test build
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: TimePlanner-Test-Build
           path: dist/TimePlanner-test.exe
