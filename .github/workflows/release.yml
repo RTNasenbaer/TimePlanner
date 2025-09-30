@@ -1,0 +1,245 @@
+name: Build and Release TimePlanner
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.version.outputs.changelog }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version
+        id: version
+        run: |
+          # Get the current date for version
+          DATE=$(date +%Y.%m.%d)
+          # Get the number of commits today to handle multiple releases per day
+          TODAY_COMMITS=$(git log --since="$(date +%Y-%m-%d) 00:00:00" --oneline | wc -l)
+          
+          if [ $TODAY_COMMITS -gt 1 ]; then
+            VERSION="${DATE}.${TODAY_COMMITS}"
+          else
+            VERSION="${DATE}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Generate changelog from commit messages since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"* %s" --reverse)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"* %s" --reverse)
+          fi
+          
+          # Create changelog
+          CHANGELOG="## Changes in this release"$'\n\n'"$COMMITS"
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          # Install required system packages
+          choco install --yes vcredist2019
+
+      - name: Create version file
+        run: |
+          echo "__version__ = '${{ needs.version.outputs.version }}'" > version.py
+          echo "VERSION = '${{ needs.version.outputs.version }}'" >> version.py
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt5 pandas openpyxl python-docx pyinstaller pillow
+
+      - name: Create application icon
+        run: |
+          python -c "
+          try:
+              from PIL import Image, ImageDraw
+              import os
+              
+              # Create a simple icon
+              img = Image.new('RGBA', (256, 256), (70, 130, 180, 255))  # Steel blue background
+              draw = ImageDraw.Draw(img)
+              
+              # Draw a clock-like design
+              center = (128, 128)
+              radius = 100
+              
+              # Outer circle
+              draw.ellipse([center[0]-radius, center[1]-radius, center[0]+radius, center[1]+radius], 
+                           outline=(255, 255, 255, 255), width=8)
+              
+              # Clock hands
+              draw.line([center[0], center[1], center[0], center[1]-60], fill=(255, 255, 255, 255), width=8)  # Hour hand
+              draw.line([center[0], center[1], center[0]+45, center[1]-30], fill=(255, 255, 255, 255), width=6)  # Minute hand
+              
+              # Center dot
+              draw.ellipse([center[0]-8, center[1]-8, center[0]+8, center[1]+8], fill=(255, 255, 255, 255))
+              
+              # Save as ICO
+              img.save('icon.ico', format='ICO', sizes=[(256,256), (128,128), (64,64), (32,32), (16,16)])
+              print('Successfully created icon.ico')
+          except Exception as e:
+              print(f'Error creating icon: {e}')
+              print('Continuing without custom icon...')
+          "
+
+      - name: Build executable with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name=TimePlanner-${{ needs.version.outputs.version }} --hidden-import=pandas --hidden-import=openpyxl --hidden-import=PyQt5.QtWidgets --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtCore --hidden-import=docx --hidden-import=docx.shared --hidden-import=colorsys --hidden-import=json --hidden-import=datetime --collect-all=PyQt5 --add-data="lang;lang" --icon=icon.ico --clean main.py
+        shell: cmd
+
+      - name: Create portable distribution
+        run: |
+          mkdir TimePlanner-Portable-${{ needs.version.outputs.version }}
+          copy "dist\TimePlanner-${{ needs.version.outputs.version }}.exe" "TimePlanner-Portable-${{ needs.version.outputs.version }}\TimePlanner.exe"
+          copy "README.md" "TimePlanner-Portable-${{ needs.version.outputs.version }}\README.md" 2>nul || echo "No README.md found"
+          copy "settings.json" "TimePlanner-Portable-${{ needs.version.outputs.version }}\settings.json" 2>nul || echo "No settings.json found"
+          xcopy "lang" "TimePlanner-Portable-${{ needs.version.outputs.version }}\lang\" /E /I 2>nul || echo "No lang folder found"
+          
+          echo "TimePlanner Portable v${{ needs.version.outputs.version }}" > "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+          echo "" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+          echo "This is a portable version of TimePlanner." >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+          echo "No installation required - just run TimePlanner.exe" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+          echo "" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+          echo "Built on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" >> "TimePlanner-Portable-${{ needs.version.outputs.version }}\VERSION.txt"
+        shell: cmd
+
+      - name: Create ZIP archive
+        run: |
+          powershell Compress-Archive -Path "TimePlanner-Portable-${{ needs.version.outputs.version }}\*" -DestinationPath "TimePlanner-Portable-${{ needs.version.outputs.version }}.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: TimePlanner-Windows-${{ needs.version.outputs.version }}
+          path: |
+            dist/TimePlanner-${{ needs.version.outputs.version }}.exe
+            TimePlanner-Portable-${{ needs.version.outputs.version }}.zip
+
+  create-release:
+    needs: [version, build-windows]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: TimePlanner-Windows-${{ needs.version.outputs.version }}
+          path: ./artifacts
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          release_name: TimePlanner v${{ needs.version.outputs.version }}
+          body: |
+            ${{ needs.version.outputs.changelog }}
+            
+            ## Downloads
+            
+            - **TimePlanner-${{ needs.version.outputs.version }}.exe**: Standalone executable for Windows
+            - **TimePlanner-Portable-${{ needs.version.outputs.version }}.zip**: Portable version with all necessary files
+            
+            ## Installation
+            
+            ### Standalone Executable
+            1. Download `TimePlanner-${{ needs.version.outputs.version }}.exe`
+            2. Run the executable directly - no installation required
+            
+            ### Portable Version
+            1. Download `TimePlanner-Portable-${{ needs.version.outputs.version }}.zip`
+            2. Extract to any folder
+            3. Run `TimePlanner.exe` from the extracted folder
+            
+            ## System Requirements
+            - Windows 10 or later
+            - No additional software required
+            
+            Built automatically from commit: ${{ github.sha }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Executable to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/TimePlanner-${{ needs.version.outputs.version }}.exe
+          asset_name: TimePlanner-${{ needs.version.outputs.version }}.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Portable ZIP to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/TimePlanner-Portable-${{ needs.version.outputs.version }}.zip
+          asset_name: TimePlanner-Portable-${{ needs.version.outputs.version }}.zip
+          asset_content_type: application/zip
+
+  # Optional: Build check for pull requests (doesn't create release)
+  build-check:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt5 pandas openpyxl python-docx pyinstaller pillow
+
+      - name: Test build
+        run: |
+          echo "__version__ = 'test-build'" > version.py
+          pyinstaller --onefile --windowed --name=TimePlanner-test --hidden-import=pandas --hidden-import=openpyxl --hidden-import=PyQt5.QtWidgets --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtCore --hidden-import=docx --collect-all=PyQt5 --clean main.py
+        shell: cmd
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v3
+        with:
+          name: TimePlanner-Test-Build
+          path: dist/TimePlanner-test.exe

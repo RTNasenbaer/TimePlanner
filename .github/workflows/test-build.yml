@@ -1,0 +1,101 @@
+name: Test Build
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Create test version file
+        run: |
+          echo "__version__ = 'test-build'" > version.py
+          echo "VERSION = 'test-build'" >> version.py
+          echo "BUILD_DATE = '$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')'" >> version.py
+          echo "GIT_COMMIT = '${{ github.sha }}'" >> version.py
+          echo "" >> version.py
+          echo "def get_version():" >> version.py
+          echo "    return __version__" >> version.py
+          echo "" >> version.py
+          echo "def get_version_info():" >> version.py
+          echo "    return {'version': __version__, 'build_date': BUILD_DATE, 'git_commit': GIT_COMMIT}" >> version.py
+          echo "" >> version.py
+          echo "def get_version_string():" >> version.py
+          echo "    return f'TimePlanner v{__version__} (Built: {BUILD_DATE})'" >> version.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt5 pandas openpyxl python-docx pyinstaller pillow
+
+      - name: Create application icon
+        run: |
+          python -c "
+          try:
+              from PIL import Image, ImageDraw
+              import os
+              
+              # Create a simple icon
+              img = Image.new('RGBA', (256, 256), (70, 130, 180, 255))  # Steel blue background
+              draw = ImageDraw.Draw(img)
+              
+              # Draw a clock-like design
+              center = (128, 128)
+              radius = 100
+              
+              # Outer circle
+              draw.ellipse([center[0]-radius, center[1]-radius, center[0]+radius, center[1]+radius], 
+                           outline=(255, 255, 255, 255), width=8)
+              
+              # Clock hands
+              draw.line([center[0], center[1], center[0], center[1]-60], fill=(255, 255, 255, 255), width=8)  # Hour hand
+              draw.line([center[0], center[1], center[0]+45, center[1]-30], fill=(255, 255, 255, 255), width=6)  # Minute hand
+              
+              # Center dot
+              draw.ellipse([center[0]-8, center[1]-8, center[0]+8, center[1]+8], fill=(255, 255, 255, 255))
+              
+              # Save as ICO
+              img.save('icon.ico', format='ICO', sizes=[(256,256), (128,128), (64,64), (32,32), (16,16)])
+              print('Successfully created icon.ico')
+          except Exception as e:
+              print(f'Error creating icon: {e}')
+              print('Continuing without custom icon...')
+          "
+
+      - name: Test build with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name=TimePlanner-test --hidden-import=pandas --hidden-import=openpyxl --hidden-import=PyQt5.QtWidgets --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtCore --hidden-import=docx --collect-all=PyQt5 --add-data="lang;lang" --icon=icon.ico --clean main.py
+        shell: cmd
+
+      - name: Verify build output
+        run: |
+          if (Test-Path "dist\TimePlanner-test.exe") {
+              $size = (Get-Item "dist\TimePlanner-test.exe").Length / 1MB
+              Write-Host "✅ Build successful!" -ForegroundColor Green
+              Write-Host "Executable size: $([math]::Round($size, 1)) MB" -ForegroundColor Cyan
+              
+              # Get file info
+              $fileInfo = Get-Item "dist\TimePlanner-test.exe"
+              Write-Host "Created: $($fileInfo.CreationTime)" -ForegroundColor Yellow
+              Write-Host "Modified: $($fileInfo.LastWriteTime)" -ForegroundColor Yellow
+          } else {
+              Write-Host "❌ Build failed - executable not created" -ForegroundColor Red
+              exit 1
+          }
+
+      - name: Upload test build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: TimePlanner-Test-Build
+          path: dist/TimePlanner-test.exe
+          retention-days: 7

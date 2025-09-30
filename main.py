@@ -12,6 +12,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
 from PyQt5.QtCore import Qt, QRectF
 
+# Version information
+try:
+    from version import get_version_string
+except ImportError:
+    # Fallback if version.py is not available
+    def get_version_string():
+        return "TimePlanner v1.0.0"
+
 # Translation system
 from translation import tr, init_translation_system, change_language
 
@@ -833,7 +841,7 @@ class TimePlannerApp(QWidget):
             total = 120
         self.plan_name = name.strip()
         self.total_minutes = total
-        self.setWindowTitle(f"{tr('app_title')} - {self.plan_name}")
+        self.setWindowTitle(f"{get_version_string()} - {self.plan_name}")
         self.setStyleSheet("""
             QWidget {
                 background: #f4f7fa;
@@ -1427,7 +1435,7 @@ class TimePlannerApp(QWidget):
     def update_language(self, language_code):
         """Update main application text when language changes"""
         # Update window title
-        self.setWindowTitle(f"{tr('app_title')} - {self.plan_name}")
+        self.setWindowTitle(f"{get_version_string()} - {self.plan_name}")
         
         # Update info label
         self.info.setText(tr('total_duration_label').format(self.total_minutes//60, self.total_minutes%60, self.total_minutes))
@@ -1496,7 +1504,7 @@ class TimePlannerApp(QWidget):
     def update_all_ui(self):
         """Update all UI elements when language changes"""
         # Update window title
-        self.setWindowTitle(f"{tr('app_title')} - {self.plan_name}")
+        self.setWindowTitle(f"{get_version_string()} - {self.plan_name}")
         
         # Update info label
         self.info.setText(tr('total_duration_label').format(self.total_minutes//60, self.total_minutes%60, self.total_minutes))
