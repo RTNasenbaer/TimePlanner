@@ -63,11 +63,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies
-        run: |
-          # Install required system packages
-          choco install --yes vcredist2019
-
       - name: Create version file
         run: |
           echo "__version__ = '${{ needs.version.outputs.version }}'" > version.py
