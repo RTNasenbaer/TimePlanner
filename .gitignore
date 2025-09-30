@@ -1,3 +1,39 @@
-.vscode/*.*
-dist/*.*
-TimePlanner-Portable/*.*
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build and Distribution
+dist/
+build/
+TimePlanner-Portable/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Application files
+settings.json
+
+# Translation files (keep template files)
+!lang/*.json
+
+# Temporary files
+*.tmp
+*.temp
+test_*.py
+test_*.docx
+*_test.docx
+Thumbs.db
+.DS_Store
+
+# Output files (user-generated)
+Trainingseinheit_*.docx
+!Trainingseinheit_Name_StandardFile_Date.docx
+
+# Documentation temp files
+~$*.docx
