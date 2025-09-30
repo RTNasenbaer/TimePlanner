@@ -10,11 +10,14 @@ from typing import Dict, Optional
 
 
 class TranslationManager:
-    """Manages translations for the TimePlanner application"""
+    """Optimized translation manager with caching and performance improvements"""
+    
+    # Class-level cache for loaded translations to avoid redundant file I/O
+    _translation_cache: Dict[str, Dict[str, str]] = {}
     
     def __init__(self, language: str = "de-de", fallback_language: str = "de-de"):
         """
-        Initialize the translation manager
+        Initialize the translation manager with performance optimizations
         
         Args:
             language: Primary language code (e.g., "en-us", "de-de")
@@ -25,6 +28,9 @@ class TranslationManager:
         self.translations: Dict[str, str] = {}
         self.fallback_translations: Dict[str, str] = {}
         self.lang_dir = os.path.join(os.path.dirname(__file__), "lang")
+        
+        # Performance optimizations
+        self._missing_keys: set = set()  # Track missing keys to avoid repeated lookups
         
         self.load_translations()
     
@@ -38,22 +44,36 @@ class TranslationManager:
             self._load_language_file(self.fallback_language, self.fallback_translations)
     
     def _load_language_file(self, language: str, target_dict: Dict[str, str]):
-        """Load a specific language file"""
+        """Load a specific language file with caching for better performance"""
+        # Check cache first
+        if language in self._translation_cache:
+            target_dict.update(self._translation_cache[language])
+            return
+        
         lang_file = os.path.join(self.lang_dir, f"{language}.json")
         
-        if os.path.exists(lang_file):
-            try:
-                with open(lang_file, 'r', encoding='utf-8') as f:
-                    target_dict.update(json.load(f))
-                print(f"Loaded {len(target_dict)} translations for {language}")
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                print(f"Error loading {language} translations: {e}")
-        else:
+        if not os.path.exists(lang_file):
             print(f"Translation file not found: {lang_file}")
+            return
+        
+        try:
+            with open(lang_file, 'r', encoding='utf-8') as f:
+                translations = json.load(f)
+                
+            # Cache the loaded translations
+            self._translation_cache[language] = translations
+            target_dict.update(translations)
+            
+            print(f"Loaded {len(translations)} translations for {language}")
+            
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
+            print(f"Error loading {language} translations: {e}")
+        except Exception as e:
+            print(f"Unexpected error loading {language} translations: {e}")
     
     def tr(self, key: str, **kwargs) -> str:
         """
-        Translate a key with optional formatting arguments
+        Optimized translation with caching and performance improvements
         
         Args:
             key: Translation key
@@ -62,17 +82,22 @@ class TranslationManager:
         Returns:
             Translated and formatted string
         """
-        # Try primary language first
-        text = self.translations.get(key)
-        
-        # Fall back to fallback language
-        if text is None and self.fallback_translations:
-            text = self.fallback_translations.get(key)
-        
-        # If still not found, return the key itself as fallback
-        if text is None:
+        # Quick check for missing keys to avoid repeated lookups
+        if key in self._missing_keys:
             text = key
-            print(f"Translation missing: {key}")
+        else:
+            # Try primary language first
+            text = self.translations.get(key)
+            
+            # Fall back to fallback language
+            if text is None and self.fallback_translations:
+                text = self.fallback_translations.get(key)
+            
+            # If still not found, cache as missing and return key
+            if text is None:
+                text = key
+                self._missing_keys.add(key)
+                print(f"Translation missing: {key}")
         
         # Apply formatting if arguments provided
         if kwargs:
@@ -80,12 +105,13 @@ class TranslationManager:
                 text = text.format(**kwargs)
             except (KeyError, ValueError) as e:
                 print(f"Translation formatting error for '{key}': {e}")
+                # Return unformatted text on error
         
         return text
     
     def change_language(self, language: str):
         """
-        Change the active language
+        Optimized language change with cache management
         
         Args:
             language: New language code
@@ -93,20 +119,28 @@ class TranslationManager:
         if language != self.language:
             self.language = language
             self.translations.clear()
+            self._missing_keys.clear()  # Clear missing keys cache
             self.load_translations()
     
     def get_available_languages(self) -> list:
-        """Get list of available language codes"""
-        if not os.path.exists(self.lang_dir):
-            return []
+        """Get list of available language codes with caching"""
+        # Use class-level cache for available languages
+        if not hasattr(self.__class__, '_available_languages_cache'):
+            if not os.path.exists(self.lang_dir):
+                self.__class__._available_languages_cache = []
+            else:
+                languages = []
+                try:
+                    for file in os.listdir(self.lang_dir):
+                        if file.endswith('.json'):
+                            lang_code = file[:-5]  # Remove .json extension
+                            languages.append(lang_code)
+                except OSError:
+                    languages = []
+                
+                self.__class__._available_languages_cache = sorted(languages)
         
-        languages = []
-        for file in os.listdir(self.lang_dir):
-            if file.endswith('.json'):
-                lang_code = file[:-5]  # Remove .json extension
-                languages.append(lang_code)
-        
-        return sorted(languages)
+        return self.__class__._available_languages_cache.copy()  # Return copy to prevent modification
     
     def get_language_display_name(self, language_code: str) -> str:
         """Get display name for a language code"""
@@ -121,6 +155,13 @@ class TranslationManager:
             "pt-pt": "Português (Portugal)",
         }
         return display_names.get(language_code, language_code.upper())
+    
+    @classmethod
+    def clear_caches(cls):
+        """Clear all caches to free memory"""
+        cls._translation_cache.clear()
+        if hasattr(cls, '_available_languages_cache'):
+            delattr(cls, '_available_languages_cache')
 
 
 # Global translation manager instance
@@ -145,7 +186,7 @@ def init_translation_system(language: str = "de-de") -> TranslationManager:
 
 def tr(key: str, **kwargs) -> str:
     """
-    Global translation function - shorthand for easy use
+    Optimized global translation function with lazy initialization
     
     Args:
         key: Translation key
@@ -177,6 +218,11 @@ def change_language(language: str):
         _translation_manager = TranslationManager(language)
     else:
         _translation_manager.change_language(language)
+
+
+def clear_translation_caches():
+    """Clear all translation caches to free memory"""
+    TranslationManager.clear_caches()
 
 
 # Usage Examples:

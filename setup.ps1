@@ -45,12 +45,12 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Conda packages installed successfully!" -ForegroundColor Green
 Write-Host ""
 
-# Install pip packages
-Write-Host "Installing pip packages (PyQt5, qtawesome)..." -ForegroundColor Yellow
-conda run -n zeitplan pip install PyQt5 qtawesome
+# Install pip packages from requirements.txt (optimized)
+Write-Host "Installing pip packages from requirements.txt..." -ForegroundColor Yellow
+conda run -n zeitplan pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARNING: Failed to install some pip packages. Trying requirements.txt..." -ForegroundColor Yellow
-    conda run -n zeitplan pip install -r requirements.txt
+    Write-Host "WARNING: Failed to install from requirements.txt. Trying individual packages..." -ForegroundColor Yellow
+    conda run -n zeitplan pip install PyQt5 qtawesome python-docx Pillow
 }
 Write-Host "Pip packages installed!" -ForegroundColor Green
 Write-Host ""

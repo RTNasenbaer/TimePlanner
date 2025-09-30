@@ -122,6 +122,12 @@ $pyinstallerArgs = @(
     "--hidden-import=PyQt5.QtWidgets",
     "--hidden-import=PyQt5.QtGui",
     "--hidden-import=PyQt5.QtCore",
+    "--hidden-import=docx",
+    "--hidden-import=docx.shared",
+    "--hidden-import=colorsys",
+    "--hidden-import=json",
+    "--hidden-import=datetime",
+    "--collect-all=PyQt5",
     "--clean"
 )
 
@@ -141,6 +147,16 @@ if (Test-Path "*.xlsx") {
 if (Test-Path "*.png") { 
     $pyinstallerArgs += "--add-data=*.png;."
     Write-Host "Including PNG files" -ForegroundColor Green
+}
+if (Test-Path "*.docx") { 
+    $pyinstallerArgs += "--add-data=*.docx;."
+    Write-Host "Including DOCX template files" -ForegroundColor Green
+}
+if (Test-Path "lang") { 
+    $pyinstallerArgs += "--add-data=lang;lang"
+    Write-Host "Including language files" -ForegroundColor Green
+} else {
+    Write-Host "WARNING: lang folder not found - translations may not work" -ForegroundColor Yellow
 }
 
 # Add main.py

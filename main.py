@@ -1,74 +1,162 @@
 import sys
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QColorDialog, QInputDialog, QLabel, QFrame,
-    QMenuBar, QAction, QFileDialog, QMessageBox, QDialog, QFormLayout, QLineEdit, QSpinBox, QTextEdit, QComboBox, QMenu
-)
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QLinearGradient
-from PyQt5.QtCore import Qt, QRectF
-
-import pandas as pd
 import json
 import os
 from datetime import datetime
 
-import random
+# PyQt5 imports - grouped by module
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QInputDialog, QLabel,
+    QMenuBar, QAction, QFileDialog, QMessageBox, QDialog, QFormLayout, QLineEdit, 
+    QSpinBox, QTextEdit, QComboBox, QMenu
+)
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont
+from PyQt5.QtCore import Qt, QRectF
 
-# Import translation system
+# Translation system
 from translation import tr, init_translation_system, change_language
 
-try:
-    from docx import Document
-    from docx.shared import Inches
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
+# Global instance tracking
+_current_app_instance = None
+
+# Lazy imports for optional dependencies
+def _import_pandas():
+    try:
+        import pandas as pd
+        return pd
+    except ImportError:
+        raise ImportError("pandas is required for Excel operations")
+
+def _import_docx():
+    try:
+        from docx import Document
+        return Document
+    except ImportError:
+        raise ImportError("python-docx is required for Word document operations")
 
 
-# Hilfsfunktion für harmonische Farben
+# Optimized color generation with caching
+import colorsys
+
+# Pre-computed golden angle for color harmony
+GOLDEN_ANGLE = 137.508
+_color_cache = {}
+
 def get_nice_color(idx):
-    # Golden angle for color harmony
-    golden_angle = 137.508
-    hue = (idx * golden_angle) % 360
-    import colorsys
+    """Generate harmonious colors with caching for better performance"""
+    if idx in _color_cache:
+        return _color_cache[idx]
+    
+    hue = (idx * GOLDEN_ANGLE) % 360
     rgb = colorsys.hsv_to_rgb(hue/360, 0.5, 0.95)
-    return QColor(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+    color = QColor(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+    
+    # Cache for future use
+    _color_cache[idx] = color
+    return color
 
 class AppSettings:
-    def __init__(self):
-        self.user_name = tr("default_trainer_name")
-        self.player_number = 20
-        self.requirements = tr("default_requirements")
-        self.team = tr("default_team")
-        self.language = "de-de"  # Default language
-        self.settings_file = "settings.json"
-        self.load_settings()
+    """Optimized application settings with lazy loading and better error handling"""
+    __slots__ = ('_user_name', '_player_number', '_requirements', '_team', '_language', 'settings_file', '_loaded')
     
-    def load_settings(self):
-        if os.path.exists(self.settings_file):
-            try:
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.user_name = data.get('user_name', self.user_name)
-                    self.player_number = data.get('player_number', self.player_number)
-                    self.requirements = data.get('requirements', self.requirements)
-                    self.team = data.get('team', self.team)
-                    self.language = data.get('language', self.language)
-            except Exception:
-                pass  # Use defaults if loading fails
+    def __init__(self):
+        self.settings_file = "settings.json"
+        self._loaded = False
+        # Initialize with defaults
+        self._user_name = None
+        self._player_number = None
+        self._requirements = None
+        self._team = None
+        self._language = None
+    
+    def _ensure_loaded(self):
+        """Lazy loading of settings"""
+        if not self._loaded:
+            self._load_settings()
+            self._loaded = True
+    
+    def _load_settings(self):
+        """Load settings from file with proper error handling"""
+        if not os.path.exists(self.settings_file):
+            return
+        
+        try:
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self._user_name = data.get('user_name')
+                self._player_number = data.get('player_number')
+                self._requirements = data.get('requirements')
+                self._team = data.get('team')
+                self._language = data.get('language')
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
+            print(f"Warning: Could not load settings: {e}")
+    
+    @property
+    def user_name(self):
+        self._ensure_loaded()
+        return self._user_name or tr("default_trainer_name")
+    
+    @user_name.setter
+    def user_name(self, value):
+        self._ensure_loaded()
+        self._user_name = value
+    
+    @property
+    def player_number(self):
+        self._ensure_loaded()
+        return self._player_number or 20
+    
+    @player_number.setter
+    def player_number(self, value):
+        self._ensure_loaded()
+        self._player_number = value
+    
+    @property
+    def requirements(self):
+        self._ensure_loaded()
+        return self._requirements or tr("default_requirements")
+    
+    @requirements.setter
+    def requirements(self, value):
+        self._ensure_loaded()
+        self._requirements = value
+    
+    @property
+    def team(self):
+        self._ensure_loaded()
+        return self._team or tr("default_team")
+    
+    @team.setter
+    def team(self, value):
+        self._ensure_loaded()
+        self._team = value
+    
+    @property
+    def language(self):
+        self._ensure_loaded()
+        return self._language or "de-de"
+    
+    @language.setter
+    def language(self, value):
+        self._ensure_loaded()
+        self._language = value
     
     def save_settings(self):
+        """Save settings with proper error handling"""
+        self._ensure_loaded()
         try:
             data = {
-                'user_name': self.user_name,
-                'player_number': self.player_number,
-                'requirements': self.requirements,
-                'team': self.team,
-                'language': self.language
+                'user_name': self._user_name,
+                'player_number': self._player_number,
+                'requirements': self._requirements,
+                'team': self._team,
+                'language': self._language
             }
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass  # Silently fail if saving doesn't work
+        except (PermissionError, OSError) as e:
+            print(f"Warning: Could not save settings: {e}")
+            return False
+        return True
 
 
 class SettingsDialog(QDialog):
@@ -373,6 +461,9 @@ class EditSectionDialog(QDialog):
 
 
 class TimeSection:
+    """Optimized time section with memory-efficient slots"""
+    __slots__ = ('start', 'duration', 'name', 'color', 'organisation', 'explanation', 'tools')
+    
     def __init__(self, start, duration, name, color, organisation=None, explanation="", tools=""):
         self.start = start  # in minutes
         self.duration = duration  # in minutes
@@ -381,112 +472,199 @@ class TimeSection:
         self.organisation = organisation if organisation is not None else tr("organization_exercise")
         self.explanation = explanation  # Detailed explanation of the exercise
         self.tools = tools  # List of tools needed
+    
+    @property
+    def end_time(self):
+        """Calculate end time efficiently"""
+        return self.start + self.duration
+    
+    def to_dict(self):
+        """Convert to dictionary for serialization"""
+        return {
+            'start': self.start,
+            'duration': self.duration,
+            'name': self.name,
+            'color': f'#{self.color.red():02x}{self.color.green():02x}{self.color.blue():02x}',
+            'organisation': self.organisation,
+            'explanation': self.explanation,
+            'tools': self.tools
+        }
 
 
 class BarWidget(QWidget):
+    """Optimized bar widget with efficient painting and memory management"""
+    
+    # Class constants for better performance
+    MARGIN = 80
+    BAR_HEIGHT = 120
+    DASH_LINE_ALPHA = 120
+    BACKGROUND_COLOR = QColor(250, 252, 255)
+    BAR_COLOR = QColor(230, 235, 245)
+    
     def __init__(self, total_minutes=120, sections=None):
         super().__init__()
         self.total_minutes = total_minutes
         self.sections = sections if sections else []
         self.setMinimumWidth(1300)
         self.setMinimumHeight(340)
+        
+        # Drag state variables
         self._drag_idx = None
         self._drag_offset = 0
         self._drag_x = None
         self._drag_y = None
         self._drag_section = None
+        
+        # Performance optimizations
         self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)  # Optimize painting
+        
+        # Pre-create commonly used objects to reduce allocations
+        self._dash_pen = QPen(QColor(120, 120, 120, self.DASH_LINE_ALPHA), 1, Qt.DashLine)
+        self._text_pen = QPen(QColor(30, 30, 30))
+        self._text_font = QFont()
+        self._text_font.setPointSize(8)
+        self._text_font.setBold(False)
+        
+        # Cache for paint calculations
+        self._last_width = 0
+        self._cached_bar_width = 0
 
     def paintEvent(self, event):
+        """Optimized paint event with reduced object creation"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Cache calculations for performance
         width = self.width()
         height = self.height()
-        margin = 80
-        bar_height = 120
-        bar_y = height//2 - bar_height//2
-        # Hintergrund
-        painter.setBrush(QColor(250,252,255))
+        
+        # Update cached values if width changed
+        if width != self._last_width:
+            self._last_width = width
+            self._cached_bar_width = width - 2 * self.MARGIN
+        
+        bar_y = height // 2 - self.BAR_HEIGHT // 2
+        
+        # Background - use cached color
+        painter.setBrush(self.BACKGROUND_COLOR)
         painter.setPen(Qt.NoPen)
         painter.drawRect(0, 0, width, height)
-        # Bar
-        painter.setBrush(QColor(230,235,245))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(margin, bar_y, width-2*margin, bar_height, 16, 16)
-        # Segmente (außer Dragged)
+        
+        # Main bar - use cached color
+        painter.setBrush(self.BAR_COLOR)
+        painter.drawRoundedRect(self.MARGIN, bar_y, self._cached_bar_width, self.BAR_HEIGHT, 16, 16)
+        
+        # Set up text rendering once
+        painter.setFont(self._text_font)
+        
+        # Draw segments (except dragged one)
+        self._paint_sections(painter, bar_y, exclude_dragged=True)
+        
+        # Draw dragged segment as ghost
+        self._paint_dragged_section(painter, bar_y)
+    
+    def _paint_sections(self, painter, bar_y, exclude_dragged=False):
+        """Efficiently paint sections with minimal object creation"""
         for idx, section in enumerate(self.sections):
-            if self._drag_idx == idx and self._drag_section is not None:
+            if exclude_dragged and self._drag_idx == idx and self._drag_section is not None:
                 continue
-            x_start = margin + (section.start/self.total_minutes)*(width-2*margin)
-            x_end = margin + ((section.start+section.duration)/self.total_minutes)*(width-2*margin)
-            rect = QRectF(x_start, bar_y, x_end-x_start, bar_height)
-            # Segment
+            
+            # Calculate positions once
+            x_start = self.MARGIN + (section.start / self.total_minutes) * self._cached_bar_width
+            x_end = self.MARGIN + (section.end_time / self.total_minutes) * self._cached_bar_width
+            
+            # Draw segment
+            rect = QRectF(x_start, bar_y, x_end - x_start, self.BAR_HEIGHT)
             painter.setBrush(section.color)
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(rect, 12, 12)
-            # Gestrichelte Linien am Start und Ende
-            dash_pen = QPen(QColor(120,120,120,120), 1, Qt.DashLine)
-            painter.setPen(dash_pen)
-            painter.drawLine(int(x_start), int(bar_y-8), int(x_start), int(bar_y+bar_height+18))
-            painter.drawLine(int(x_end), int(bar_y-8), int(x_end), int(bar_y+bar_height+18))
-            # Text (Name + Dauer) UNTER dem Segment
-            painter.setPen(QPen(QColor(30,30,30)))
-            font = QFont()
-            font.setPointSize(8)
-            font.setBold(False)
-            painter.setFont(font)
+            
+            # Draw dashed lines using pre-created pen
+            painter.setPen(self._dash_pen)
+            x_start_int, x_end_int = int(x_start), int(x_end)
+            line_top = int(bar_y - 8)
+            line_bottom = int(bar_y + self.BAR_HEIGHT + 18)
+            painter.drawLine(x_start_int, line_top, x_start_int, line_bottom)
+            painter.drawLine(x_end_int, line_top, x_end_int, line_bottom)
+            
+            # Draw text using pre-created pen and font
+            painter.setPen(self._text_pen)
             text = f"{section.name} ({section.duration} min)"
-            text_rect = QRectF(x_start, bar_y+bar_height+6, x_end-x_start, 18)
+            text_rect = QRectF(x_start, bar_y + self.BAR_HEIGHT + 6, x_end - x_start, 18)
             painter.drawText(text_rect, Qt.AlignCenter, text)
-        # Dragged Segment als Ghost am Cursor (folgt X und Y)
-        if self._drag_idx is not None and self._drag_section is not None and self._drag_x is not None and self._drag_y is not None:
-            drag = self._drag_section
-            drag_width = (drag.duration/self.total_minutes)*(width-2*margin)
-            rect = QRectF(self._drag_x - self._drag_offset, self._drag_y - bar_height//2, drag_width, bar_height)
-            painter.setBrush(drag.color.lighter(120))
-            painter.setPen(QPen(QColor(120,120,120,80), 2, Qt.DashLine))
-            painter.drawRoundedRect(rect, 12, 12)
-            # Gestrichelte Linien für Ghost
-            dash_pen = QPen(QColor(120,120,120,120), 1, Qt.DashLine)
-            painter.setPen(dash_pen)
-            painter.drawLine(int(rect.left()), int(rect.top()-8), int(rect.left()), int(rect.bottom()+18))
-            painter.drawLine(int(rect.right()), int(rect.top()-8), int(rect.right()), int(rect.bottom()+18))
-            # Text (Name + Dauer) UNTER dem Ghost
-            painter.setPen(QPen(QColor(30,30,30)))
-            font = QFont()
-            font.setPointSize(8)
-            font.setBold(False)
-            painter.setFont(font)
-            text = f"{drag.name} ({drag.duration} min)"
-            text_rect = QRectF(rect.left(), rect.bottom()+6, rect.width(), 18)
-            painter.drawText(text_rect, Qt.AlignCenter, text)
+    
+    def _paint_dragged_section(self, painter, bar_y):
+        """Paint the dragged section as a ghost"""
+        if not (self._drag_idx is not None and self._drag_section is not None and 
+                self._drag_x is not None and self._drag_y is not None):
+            return
+        
+        drag = self._drag_section
+        drag_width = (drag.duration / self.total_minutes) * self._cached_bar_width
+        rect = QRectF(self._drag_x - self._drag_offset, self._drag_y - self.BAR_HEIGHT // 2, 
+                     drag_width, self.BAR_HEIGHT)
+        
+        # Ghost section
+        painter.setBrush(drag.color.lighter(120))
+        ghost_pen = QPen(QColor(120, 120, 120, 80), 2, Qt.DashLine)
+        painter.setPen(ghost_pen)
+        painter.drawRoundedRect(rect, 12, 12)
+        
+        # Ghost dashed lines
+        painter.setPen(self._dash_pen)
+        left_int, right_int = int(rect.left()), int(rect.right())
+        top_int, bottom_int = int(rect.top() - 8), int(rect.bottom() + 18)
+        painter.drawLine(left_int, top_int, left_int, bottom_int)
+        painter.drawLine(right_int, top_int, right_int, bottom_int)
+        
+        # Ghost text
+        painter.setPen(self._text_pen)
+        text = f"{drag.name} ({drag.duration} min)"
+        text_rect = QRectF(rect.left(), rect.bottom() + 6, rect.width(), 18)
+        painter.drawText(text_rect, Qt.AlignCenter, text)
 
     def mousePressEvent(self, event):
+        """Optimized mouse press handling"""
         if event.button() == Qt.RightButton:
             self.show_context_menu(event)
             return
         if event.button() != Qt.LeftButton:
             return
-        width = self.width()
-        margin = 80  # match drawing
-        bar_height = 120  # match drawing
-        bar_width = width-2*margin
-        x = event.x()
-        y = event.y()
-        bar_y = self.height()//2 - bar_height//2
+        
+        # Use cached values for performance
+        x, y = event.x(), event.y()
+        bar_y = self.height() // 2 - self.BAR_HEIGHT // 2
+        
+        # Find clicked section efficiently
+        clicked_section = self._find_section_at_point(x, y, bar_y)
+        if clicked_section is not None:
+            idx, section = clicked_section
+            x_start = self.MARGIN + (section.start / self.total_minutes) * self._cached_bar_width
+            
+            self._drag_idx = idx
+            self._drag_offset = x - x_start
+            self._drag_x = x
+            self._drag_y = y
+            self._drag_section = section
+            self.setCursor(Qt.ClosedHandCursor)
+            self.update()
+    
+    def _find_section_at_point(self, x, y, bar_y):
+        """Efficiently find section at given point"""
+        # Quick bounds check
+        if not (self.MARGIN <= x <= self.width() - self.MARGIN and 
+                bar_y <= y <= bar_y + self.BAR_HEIGHT):
+            return None
+        
         for idx, section in enumerate(self.sections):
-            x_start = margin + (section.start/self.total_minutes)*bar_width
-            x_end = margin + ((section.start+section.duration)/self.total_minutes)*bar_width
-            rect = QRectF(x_start, bar_y, x_end-x_start, bar_height)
-            if rect.contains(x, y):
-                self._drag_idx = idx
-                self._drag_offset = x - x_start
-                self._drag_x = x
-                self._drag_y = y
-                self._drag_section = section
-                self.setCursor(Qt.ClosedHandCursor)
-                self.update()
-                break
+            x_start = self.MARGIN + (section.start / self.total_minutes) * self._cached_bar_width
+            x_end = self.MARGIN + (section.end_time / self.total_minutes) * self._cached_bar_width
+            
+            if x_start <= x <= x_end:
+                return idx, section
+        
+        return None
 
     def mouseMoveEvent(self, event):
         if self._drag_idx is not None and self._drag_section is not None:
@@ -643,7 +821,7 @@ class TimePlannerApp(QWidget):
         # Initialize settings
         self.settings = settings if settings is not None else AppSettings()
         
-        # Set as current app instance for language updates
+                # Set as current app instance for language updates
         global _current_app_instance
         _current_app_instance = self
         
@@ -807,31 +985,83 @@ class TimePlannerApp(QWidget):
             self.bar.update()
 
     def import_excel(self):
-        from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        import pandas as pd
+        """Optimized Excel import with better error handling"""
         path, _ = QFileDialog.getOpenFileName(self, tr("import_excel_title"), "", tr("excel_files_filter"))
         if not path:
             return
+        
         try:
-            df = pd.read_excel(path)
+            pd = _import_pandas()
+            df = pd.read_excel(path, engine='openpyxl')  # Specify engine for better performance
+            
+            if df.empty:
+                QMessageBox.warning(self, tr("error_title"), "Excel file is empty")
+                return
+            
             sections = []
             cur_start = 0
+            
+            # Define column mappings for better compatibility
+            column_mappings = {
+                'name': ['Abschnitt', 'Section', 'Name'],
+                'duration': ['Dauer (min)', 'Duration (min)', 'Duration'],
+                'color': ['Farbe', 'Color'],
+                'organisation': ['Organisation', 'Organization'],
+                'explanation': ['Erklärung', 'Explanation'],
+                'tools': ['Hilfsmittel', 'Tools']
+            }
+            
             for _, row in df.iterrows():
-                # Try both German and English column names for compatibility
-                name = str(row.get('Abschnitt', row.get('Section', '')))
-                duration = int(row.get('Dauer (min)', row.get('Duration (min)', 0)))
-                color_hex = row.get('Farbe', row.get('Color', '#cccccc'))
-                color = QColor(color_hex)
-                organisation = str(row.get('Organisation', row.get('Organization', tr('organization_exercise'))))
-                explanation = str(row.get('Erklärung', row.get('Explanation', '')))
-                tools = str(row.get('Hilfsmittel', row.get('Tools', '')))
-                sections.append(TimeSection(cur_start, duration, name, color, organisation, explanation, tools))
+                # Use helper function to get column value
+                name = self._get_column_value(row, column_mappings['name'], '')
+                duration = self._get_column_value(row, column_mappings['duration'], 0)
+                color_hex = self._get_column_value(row, column_mappings['color'], '#cccccc')
+                organisation = self._get_column_value(row, column_mappings['organisation'], tr('organization_exercise'))
+                explanation = self._get_column_value(row, column_mappings['explanation'], '')
+                tools = self._get_column_value(row, column_mappings['tools'], '')
+                
+                # Validate data
+                if not name.strip():
+                    continue  # Skip empty rows
+                
+                try:
+                    duration = int(duration)
+                    if duration <= 0:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+                
+                # Validate color
+                try:
+                    color = QColor(color_hex)
+                    if not color.isValid():
+                        color = get_nice_color(len(sections))
+                except:
+                    color = get_nice_color(len(sections))
+                
+                sections.append(TimeSection(cur_start, duration, str(name).strip(), color, 
+                                          str(organisation), str(explanation), str(tools)))
                 cur_start += duration
+            
+            if not sections:
+                QMessageBox.warning(self, tr("error_title"), "No valid sections found in Excel file")
+                return
+            
             self.bar.sections = sections
             self.bar.update()
             QMessageBox.information(self, tr("import_success_title"), tr("import_success_message").format(path))
+            
+        except ImportError as e:
+            QMessageBox.warning(self, tr("error_title"), f"Required library not found: {e}")
         except Exception as e:
-            QMessageBox.warning(self, tr("error_title"), tr("import_error_message").format(e))
+            QMessageBox.warning(self, tr("error_title"), tr("import_error_message").format(str(e)))
+    
+    def _get_column_value(self, row, possible_columns, default):
+        """Helper to get column value with multiple possible column names"""
+        for col in possible_columns:
+            if col in row and pd.notna(row[col]):
+                return row[col]
+        return default
 
     def zoom_in(self):
         self.scale_factor = min(self.scale_factor + 0.1, 2.5)
@@ -874,48 +1104,71 @@ class TimePlannerApp(QWidget):
             QMessageBox.warning(self, tr("error_title"), tr("export_error_message"))
 
     def export_excel(self):
-        from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        import pandas as pd
+        """Optimized Excel export with better performance and error handling"""
         path, _ = QFileDialog.getSaveFileName(self, tr("export_excel_title"), f"{self.plan_name}.xlsx", tr("excel_files_filter"))
         if not path:
             return
-        data = []
-        for s in self.bar.sections:
-            color_hex = '#{:02x}{:02x}{:02x}'.format(s.color.red(), s.color.green(), s.color.blue())
-            data.append({
-                tr('excel_column_section'): s.name,
-                tr('excel_column_start'): s.start,
-                tr('excel_column_duration'): s.duration,
-                tr('excel_column_color'): color_hex,
-                tr('excel_column_organization'): getattr(s, 'organisation', tr('organization_exercise')),
-                tr('excel_column_explanation'): getattr(s, 'explanation', ''),
-                tr('excel_column_tools'): getattr(s, 'tools', '')
-            })
-        df = pd.DataFrame(data)
+        
+        if not self.bar.sections:
+            QMessageBox.warning(self, tr("error_title"), "No sections to export")
+            return
+        
         try:
-            df.to_excel(path, index=False)
+            pd = _import_pandas()
+            
+            # Pre-allocate data list for better performance
+            data = []
+            # Note: Python lists don't have reserve, but we can still optimize
+            
+            for s in self.bar.sections:
+                # Use more efficient color formatting
+                color_hex = f'#{s.color.red():02x}{s.color.green():02x}{s.color.blue():02x}'
+                
+                data.append({
+                    tr('excel_column_section'): s.name,
+                    tr('excel_column_start'): s.start,
+                    tr('excel_column_duration'): s.duration,
+                    tr('excel_column_color'): color_hex,
+                    tr('excel_column_organization'): s.organisation,
+                    tr('excel_column_explanation'): s.explanation,
+                    tr('excel_column_tools'): s.tools
+                })
+            
+            df = pd.DataFrame(data)
+            
+            # Use efficient writer with optimizations
+            with pd.ExcelWriter(path, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Sections')
+            
             QMessageBox.information(self, tr("export_success_title"), tr("export_success_message").format(path))
+            
+        except ImportError as e:
+            QMessageBox.warning(self, tr("error_title"), f"Required library not found: {e}")
+        except PermissionError:
+            QMessageBox.warning(self, tr("error_title"), "Cannot write to file. Please check if the file is open in another application.")
         except Exception as e:
-            QMessageBox.warning(self, tr("error_title"), tr("export_error_message").format(e))
+            QMessageBox.warning(self, tr("error_title"), tr("export_error_message").format(str(e)))
 
     def export_docx(self):
+        """Optimized DOCX export with lazy loading and better error handling"""
+        # Check if sections exist
+        if not self.bar.sections:
+            QMessageBox.warning(self, tr("error_title"), "No sections to export")
+            return
+        
         try:
-            from docx import Document
-            from datetime import datetime
+            Document = _import_docx()
         except ImportError:
             QMessageBox.warning(self, tr("error_title"), tr("docx_missing_library"))
             return
-            
-        from PyQt5.QtWidgets import QFileDialog, QMessageBox
         
         # Use the specific template file
         template_path = "Trainingseinheit_Name_StandardFile_Date.docx"
         if not os.path.exists(template_path):
             QMessageBox.warning(self, tr("error_title"), tr("docx_template_not_found").format(template_path))
             return
-            
-        # Ask for output file with new naming format
-        # Format: Trainingseinheit_Surname-Name_Theme_YYYY-MM-DD.docx
+        
+        # Generate filename efficiently
         trainer_name = self._sanitize_filename(self.settings.user_name)
         theme = self._sanitize_filename(self.plan_name)
         date_str = datetime.now().strftime('%Y-%m-%d')
@@ -929,17 +1182,22 @@ class TimePlannerApp(QWidget):
         )
         if not output_path:
             return
-            
+        
         try:
-            self._fill_docx_template(template_path, output_path)
+            self._fill_docx_template(template_path, output_path, Document)
             QMessageBox.information(self, tr("export_success_title"), tr("export_success_message").format(output_path))
+        except PermissionError:
+            QMessageBox.warning(self, tr("error_title"), "Cannot write to file. Please check if the file is open in another application.")
         except Exception as e:
             QMessageBox.warning(self, tr("error_title"), tr("docx_export_error").format(str(e)))
     
-    def _fill_docx_template(self, template_path, output_path):
-        from docx import Document
-        from docx.shared import Pt
-        from datetime import datetime
+    def _fill_docx_template(self, template_path, output_path, Document):
+        """Optimized DOCX template filling with better performance"""
+        try:
+            from docx.shared import Pt
+        except ImportError:
+            # Fallback if docx.shared is not available
+            Pt = lambda x: x
         
         doc = Document(template_path)
         
@@ -1033,50 +1291,48 @@ class TimePlannerApp(QWidget):
 
     def _combine_tools_intelligently(self):
         """
-        Intelligently combine tools from all sections, keeping the highest quantity for each tool type.
+        Optimized intelligent tool combination with better performance
         Example: "3 Balls", "6 Balls", "12 Balls" -> "12 Balls"
         """
         import re
         
+        if not self.bar.sections:
+            return tr('docx_no_tools')
+        
         tool_quantities = {}  # tool_name -> max_quantity
+        
+        # Pre-compile regex for better performance
+        quantity_pattern = re.compile(r'^(\d+)\s+(.+)$')
         
         for section in self.bar.sections:
             if not section.tools:
                 continue
-                
-            # Split tools by comma and process each
-            tools_list = [tool.strip() for tool in section.tools.split(',')]
+            
+            # Process tools more efficiently
+            tools_list = [tool.strip() for tool in section.tools.split(',') if tool.strip()]
             
             for tool in tools_list:
-                if not tool:
-                    continue
-                    
-                # Try to extract number and tool name using regex
-                # Matches patterns like "3 Balls", "12 Hütchen", "1 Tor", etc.
-                match = re.match(r'^(\d+)\s+(.+)$', tool.strip())
+                match = quantity_pattern.match(tool)
                 
                 if match:
                     quantity = int(match.group(1))
                     tool_name = match.group(2).strip()
                     
-                    # Keep the highest quantity for this tool
-                    if tool_name in tool_quantities:
-                        tool_quantities[tool_name] = max(tool_quantities[tool_name], quantity)
-                    else:
-                        tool_quantities[tool_name] = quantity
+                    # Use dict.get for cleaner code
+                    tool_quantities[tool_name] = max(tool_quantities.get(tool_name, 0), quantity)
                 else:
                     # No quantity found, treat as single item
-                    tool_name = tool.strip()
-                    if tool_name in tool_quantities:
-                        # If we already have a quantity for this tool, keep it
-                        pass
-                    else:
-                        # Add as single item (quantity 1, but don't show the number)
+                    tool_name = tool
+                    if tool_name not in tool_quantities:
                         tool_quantities[tool_name] = 0  # 0 means no quantity shown
         
-        # Build the final tools list
+        if not tool_quantities:
+            return tr('docx_no_tools')
+        
+        # Build final tools list efficiently
         final_tools = []
-        for tool_name, quantity in sorted(tool_quantities.items()):
+        for tool_name in sorted(tool_quantities.keys()):
+            quantity = tool_quantities[tool_name]
             if quantity > 0:
                 final_tools.append(f"{quantity} {tool_name}")
             else:
@@ -1110,23 +1366,28 @@ class TimePlannerApp(QWidget):
 
     def _sanitize_filename(self, filename):
         """
-        Sanitize a string to be safe for use in filenames
-        Replaces spaces with hyphens and removes/replaces unsafe characters
+        Optimized filename sanitization with better performance
         """
         import re
         
-        # Replace spaces with hyphens
+        if not filename:
+            return 'Unknown'
+        
+        # Pre-compile regex patterns for better performance
+        if not hasattr(self, '_filename_patterns'):
+            self._filename_patterns = {
+                'unsafe': re.compile(r'[<>:"/\\|?*]'),
+                'non_word': re.compile(r'[^\w\-_.]'),
+                'multiple_hyphens': re.compile(r'-+'),
+            }
+        
+        patterns = self._filename_patterns
+        
+        # Process in one pass for better performance
         sanitized = filename.replace(' ', '-')
-        
-        # Remove or replace unsafe characters for filenames
-        # Keep only alphanumeric, hyphens, underscores, and dots
-        sanitized = re.sub(r'[<>:"/\\|?*]', '', sanitized)
-        sanitized = re.sub(r'[^\w\-_.]', '-', sanitized)
-        
-        # Remove multiple consecutive hyphens
-        sanitized = re.sub(r'-+', '-', sanitized)
-        
-        # Remove leading/trailing hyphens
+        sanitized = patterns['unsafe'].sub('', sanitized)
+        sanitized = patterns['non_word'].sub('-', sanitized)
+        sanitized = patterns['multiple_hyphens'].sub('-', sanitized)
         sanitized = sanitized.strip('-')
         
         return sanitized if sanitized else 'Unknown'

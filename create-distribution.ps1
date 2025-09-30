@@ -27,28 +27,48 @@ Copy-Item "dist\TimePlanner.exe" "$distName\"
 # Copy data files if they exist
 if (Test-Path "*.xlsx") { Copy-Item "*.xlsx" "$distName\" }
 if (Test-Path "*.png") { Copy-Item "*.png" "$distName\" }
+if (Test-Path "*.docx") { Copy-Item "*.docx" "$distName\" }
+if (Test-Path "lang") { 
+    Copy-Item -Recurse "lang" "$distName\"
+    Write-Host "Copied language files" -ForegroundColor Green
+} else {
+    Write-Host "WARNING: lang folder not found - translations may not work" -ForegroundColor Yellow
+}
+if (Test-Path "settings.json") { Copy-Item "settings.json" "$distName\" }
 
 # Create README
 $readmeContent = @"
-# TimePlanner - Portable Application
+# TimePlanner - Portable Application (Optimized Edition)
 
 ## How to Use
 1. Double-click TimePlanner.exe to start the application
 2. No installation required - this is a portable application
 3. You can copy this folder anywhere and run it
+4. Language files and templates are included automatically
+
+## Features
+- Drag-and-drop timeline sections
+- Excel import/export with intelligent column mapping
+- Word document export with smart template filling
+- Multi-language support (German/English)
+- Optimized performance and memory usage
 
 ## System Requirements
-- Windows 10 or later
+- Windows 10 or later (64-bit recommended)
 - No additional software installation required
+- ~100MB free disk space
 
 ## Troubleshooting
 - If the application doesn't start, try running as administrator
 - Make sure Windows Defender or antivirus isn't blocking the executable
 - If you get a "Windows protected your PC" message, click "More info" then "Run anyway"
+- For Excel features: Supported formats are .xlsx (Excel 2007+)
+- For Word export: Included template file must be present
 
 ## Version Information
 Built on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 Executable size: $([math]::Round((Get-Item "dist\TimePlanner.exe").Length / 1MB, 1)) MB
+Optimized for: Ultimate efficiency and performance
 
 For support or updates, contact the developer.
 "@

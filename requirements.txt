@@ -1,7 +1,22 @@
-PyQt5
-qtawesome
-pandas
-openpyxl
-pyinstaller
-pillow
-python-docx
+# Optimized requirements for TimePlanner
+# Core GUI framework (pinned for stability)
+PyQt5>=5.15.4,<5.16.0
+
+# Data processing (optimized versions)
+pandas>=1.5.0,<2.1.0
+openpyxl>=3.0.10,<3.2.0
+
+# Document processing (optional, with fallback)
+python-docx>=0.8.11,<1.1.0
+
+# Image processing
+Pillow>=9.3.0,<10.1.0
+
+# Development and packaging
+pyinstaller>=5.7.0,<6.1.0
+
+# Optional performance enhancements
+# Uncomment for better performance if available:
+# numexpr>=2.8.0  # Faster pandas operations
+# xlsxwriter>=3.0.0  # Alternative Excel writer
+# lxml>=4.9.0  # Faster XML processing
